@@ -148,9 +148,9 @@ def analyze_ticks(wav_file):
         
         print(f"  Found {len(starts)} potential events")
         
-        # Much stricter filtering for tick pulses vs speech
-        min_duration_samples = max(1, int(0.003 * sample_rate))   # 3ms minimum (very short)
-        max_duration_samples = int(0.05 * sample_rate)           # 50ms maximum (reject longer speech sounds)
+        # Loosened filtering for tick pulses
+        min_duration_samples = max(1, int(0.003 * sample_rate))   # 3ms minimum
+        max_duration_samples = int(0.1 * sample_rate)            # 100ms maximum (loosened from 50ms)
         
         tick_candidates = []
         for start, end in zip(starts, ends):
@@ -158,64 +158,101 @@ def analyze_ticks(wav_file):
             duration_seconds = duration_samples / sample_rate
             
             if min_duration_samples <= duration_samples <= max_duration_samples:
-                # Additional checks for tick-like characteristics
+                # Loosened tick characteristic checks
                 segment_envelope = envelope_smooth[start:end]
                 
-                # Check for sharp rise/fall (tick-like vs speech-like)
-                rise_samples = min(10, len(segment_envelope) // 4)  # Check first 25% or 10 samples
-                fall_samples = min(10, len(segment_envelope) // 4)  # Check last 25% or 10 samples
+                # Check for rise/fall (loosened requirements)
+                rise_samples = min(5, len(segment_envelope) // 3)  # Reduced sample requirement
+                fall_samples = min(5, len(segment_envelope) // 3)
                 
+                is_sharp = True  # Default to true, only check if we have enough samples
                 if len(segment_envelope) > rise_samples + fall_samples:
                     rise_slope = (np.max(segment_envelope[:rise_samples]) - segment_envelope[0]) / rise_samples
                     fall_slope = (segment_envelope[-1] - np.max(segment_envelope[-fall_samples:])) / fall_samples
                     
-                    # Ticks should have sharp rise and fall
-                    is_sharp = rise_slope > threshold * 0.1 and abs(fall_slope) > threshold * 0.1
-                else:
-                    is_sharp = True  # Very short pulses are likely ticks
+                    # Much more lenient slope requirements
+                    is_sharp = rise_slope > threshold * 0.05 or abs(fall_slope) > threshold * 0.05
                 
-                # Check for quiet periods before and after (tick characteristic)
+                # Loosened quiet period checks
                 quiet_before = True
                 quiet_after = True
+                before_level = 0
+                after_level = 0
                 
-                # Check 20ms before and after for quietness
-                quiet_window = int(0.02 * sample_rate)
+                # Check 15ms before and after (reduced from 20ms)
+                quiet_window = int(0.015 * sample_rate)
                 
                 if start > quiet_window:
                     before_level = np.mean(envelope_smooth[start-quiet_window:start])
-                    quiet_before = before_level < threshold * 0.3
+                    quiet_before = before_level < threshold * 0.5  # More lenient (was 0.3)
                 
                 if end + quiet_window < len(envelope_smooth):
                     after_level = np.mean(envelope_smooth[end:end+quiet_window])
-                    quiet_after = after_level < threshold * 0.3
+                    quiet_after = after_level < threshold * 0.5   # More lenient (was 0.3)
                 
-                # Peak amplitude should be significantly above background
+                # Peak amplitude check (loosened)
                 peak_amplitude = np.max(segment_envelope)
-                is_prominent = peak_amplitude > threshold * 1.5
+                is_prominent = peak_amplitude > threshold * 1.2  # Reduced from 1.5
                 
-                # Score this candidate
+                # Scoring system (loosened)
                 tick_score = 0
-                if is_sharp: tick_score += 1
-                if quiet_before: tick_score += 1  
-                if quiet_after: tick_score += 1
-                if is_prominent: tick_score += 1
-                if duration_seconds < 0.03: tick_score += 1  # Very short is good
+                score_details = []
+                
+                if is_sharp: 
+                    tick_score += 1
+                    score_details.append("sharp")
+                if quiet_before: 
+                    tick_score += 1
+                    score_details.append("quiet_before")
+                if quiet_after: 
+                    tick_score += 1
+                    score_details.append("quiet_after")
+                if is_prominent: 
+                    tick_score += 1
+                    score_details.append("prominent")
+                if duration_seconds < 0.04:  # Increased from 0.03
+                    tick_score += 1
+                    score_details.append("short")
                 
                 tick_candidates.append({
-                    'time': start / sample_rate,
+                    'time': (start / sample_rate) + 18,  # Add 18s offset for actual time
                     'duration': duration_seconds,
                     'score': tick_score,
-                    'amplitude': peak_amplitude
+                    'score_details': score_details,
+                    'amplitude': peak_amplitude,
+                    'before_level': before_level,
+                    'after_level': after_level,
+                    'is_sharp': is_sharp,
+                    'quiet_before': quiet_before,
+                    'quiet_after': quiet_after,
+                    'is_prominent': is_prominent
                 })
         
-        # Filter candidates by score (need at least 3/5 to be considered a tick)
-        tick_times = []
+        # Loosened acceptance criteria - need at least 2/5 (was 3/5)
+        accepted_ticks = []
+        rejected_ticks = []
+        
         for candidate in tick_candidates:
-            if candidate['score'] >= 3:
+            if candidate['score'] >= 2:
+                accepted_ticks.append(candidate)
                 tick_times.append(candidate['time'])
+            else:
+                rejected_ticks.append(candidate)
         
         print(f"  Tick candidates: {len(tick_candidates)}")
-        print(f"  Valid ticks after pulse analysis: {len(tick_times)}")
+        print(f"  Accepted ticks: {len(accepted_ticks)}")
+        print(f"  Rejected ticks: {len(rejected_ticks)}")
+        
+        # Show details of first few ticks for debugging
+        for i, tick in enumerate(accepted_ticks[:5]):
+            print(f"    Tick {i+1}: {tick['time']:.3f}s, score={tick['score']}/5, criteria: {','.join(tick['score_details'])}")
+        
+        if rejected_ticks:
+            print(f"  Rejected examples:")
+            for i, tick in enumerate(rejected_ticks[:3]):
+                print(f"    Rejected {i+1}: {tick['time']:.3f}s, score={tick['score']}/5, criteria: {','.join(tick['score_details'])}")
+        
+        tick_times = sorted(tick_times)
         
         # Check if we have enough ticks for analysis
         if len(tick_times) < 2:
