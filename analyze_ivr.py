@@ -229,9 +229,9 @@ def analyze_ticks(wav_file):
                 })
         
         # Loosened acceptance criteria - need at least 2/5 (was 3/5)
-        tick_times = []  # Initialize the list
         accepted_ticks = []
         rejected_ticks = []
+        tick_times = []  # Reset the list
         
         for candidate in tick_candidates:
             if candidate['score'] >= 2:
