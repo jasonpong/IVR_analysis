@@ -1,0 +1,300 @@
+import numpy as np
+import scipy.io.wavfile as wavfile
+from scipy import signal
+import pandas as pd
+import os
+import glob
+import wave
+import audioop
+import struct
+
+def read_wav_file(wav_file):
+    """
+    Read WAV file, handling mu-law format using the working method.
+    """
+    try:
+        # First, try reading as regular WAV with scipy
+        try:
+            sample_rate, audio = wavfile.read(wav_file)
+            print(f"  Read as regular PCM WAV: {audio.dtype}, {audio.shape}")
+            
+            # Convert to float
+            if audio.dtype == np.int16:
+                audio = audio.astype(np.float32) / 32768.0
+            elif audio.dtype == np.int32:
+                audio = audio.astype(np.float32) / 2147483648.0
+            elif audio.dtype == np.uint8:
+                audio = (audio.astype(np.float32) - 128) / 128.0
+            else:
+                audio = audio.astype(np.float32)
+                
+            return sample_rate, audio
+            
+        except Exception as e:
+            print(f"  Regular WAV read failed: {e}")
+            print("  Using working mu-law conversion method...")
+            
+            # Use the exact working method you provided
+            with open(wav_file, 'rb') as f:
+                file_data = f.read()
+            
+            # Skip header (24 bytes for AU, but try different sizes for WAV)
+            # Try 44 bytes first (standard WAV), then 24 bytes
+            for header_size in [44, 24, 20, 16]:
+                try:
+                    audio_data = file_data[header_size:]
+                    if len(audio_data) == 0:
+                        continue
+                        
+                    print(f"  Trying header size: {header_size} bytes, data: {len(audio_data)} bytes")
+                    
+                    # Convert mu-law to linear using your exact method
+                    linear_data = audioop.ulaw2lin(audio_data, 1)  # 1 byte input (mu-law is 8-bit)
+                    
+                    # Convert to numpy array
+                    audio = np.frombuffer(linear_data, dtype=np.int16)
+                    audio = audio.astype(np.float32) / 32768.0
+                    
+                    # Use 8kHz as in your working method
+                    sample_rate = 8000
+                    
+                    print(f"  Success! Converted {len(audio)} samples at {sample_rate}Hz")
+                    return sample_rate, audio
+                    
+                except Exception as convert_error:
+                    print(f"    Header size {header_size} failed: {convert_error}")
+                    continue
+            
+            raise Exception("All header sizes failed for mu-law conversion")
+            
+    except Exception as e:
+        raise Exception(f"Could not read WAV file {wav_file}: {str(e)}")
+
+def analyze_ticks(wav_file):
+    """
+    Analyze tick sounds in first 30 seconds of WAV file.
+    
+    Returns:
+        dict with tick analysis results
+    """
+    try:
+        print(f"Analyzing: {wav_file}")
+        
+        # Read the WAV file (handles both PCM and mu-law)
+        sample_rate, audio = read_wav_file(wav_file)
+        
+        # Ensure mono
+        if len(audio.shape) > 1:
+            audio = np.mean(audio, axis=1)
+            print(f"  Converted to mono")
+        
+        print(f"  Audio loaded: {len(audio)} samples, {len(audio)/sample_rate:.2f}s, {sample_rate}Hz")
+        
+        # Get first 30 seconds
+        end_sample = min(len(audio), 30 * sample_rate)
+        audio = audio[:end_sample]
+        
+        # Check if we have enough data
+        if len(audio) < sample_rate:  # Less than 1 second
+            raise ValueError("Audio too short (less than 1 second)")
+        
+        # Bandpass filter for 1100-1500 Hz
+        nyquist = sample_rate / 2
+        low_freq = 1100 / nyquist
+        high_freq = 1500 / nyquist
+        
+        # Check if frequencies are valid
+        if high_freq >= 1.0:
+            raise ValueError(f"Sample rate {sample_rate}Hz too low for 1500Hz filter (Nyquist: {nyquist}Hz)")
+        
+        print(f"  Applying bandpass filter: 1100-1500 Hz (normalized: {low_freq:.3f}-{high_freq:.3f})")
+        
+        b, a = signal.butter(4, [low_freq, high_freq], btype='band')
+        filtered_audio = signal.filtfilt(b, a, audio)
+        
+        # Get envelope using Hilbert transform
+        envelope = np.abs(signal.hilbert(filtered_audio))
+        
+        # Smooth envelope (10ms window)
+        window_size = max(1, int(0.01 * sample_rate))
+        envelope_smooth = np.convolve(envelope, np.ones(window_size)/window_size, mode='same')
+        
+        # Dynamic threshold
+        threshold = np.percentile(envelope_smooth, 85) * 2.0
+        print(f"  Threshold: {threshold:.6f}")
+        
+        # Find events above threshold
+        above_threshold = envelope_smooth > threshold
+        
+        # Find rising and falling edges
+        diff = np.diff(above_threshold.astype(int))
+        starts = np.where(diff == 1)[0]
+        ends = np.where(diff == -1)[0]
+        
+        # Handle edge cases
+        if len(above_threshold) > 0:
+            if above_threshold[0]:
+                starts = np.insert(starts, 0, 0)
+            if above_threshold[-1]:
+                ends = np.append(ends, len(above_threshold) - 1)
+        
+        print(f"  Found {len(starts)} potential events")
+        
+        # Filter by duration (5ms to 150ms)
+        min_duration_samples = max(1, int(0.005 * sample_rate))
+        max_duration_samples = int(0.15 * sample_rate)
+        
+        tick_times = []
+        for start, end in zip(starts, ends):
+            duration_samples = end - start
+            if min_duration_samples <= duration_samples <= max_duration_samples:
+                tick_time = start / sample_rate
+                tick_times.append(tick_time)
+        
+        print(f"  Valid ticks after duration filtering: {len(tick_times)}")
+        
+        # Check if we have enough ticks for analysis
+        if len(tick_times) < 2:
+            return {
+                'filename': os.path.basename(wav_file),
+                'ticks_found': len(tick_times),
+                'first_tick_time': tick_times[0] if len(tick_times) > 0 else None,
+                'last_tick_time': None,
+                'total_duration': None,
+                'mean_interval': None,
+                'std_interval': None,
+                'min_interval': None,
+                'max_interval': None,
+                'assessment': 'INSUFFICIENT_DATA',
+                'error': f'Only found {len(tick_times)} ticks (need at least 2)'
+            }
+        
+        # Calculate intervals between consecutive ticks
+        intervals = []
+        for i in range(1, len(tick_times)):
+            interval = tick_times[i] - tick_times[i-1]
+            intervals.append(interval)
+        
+        intervals = np.array(intervals)
+        
+        # Calculate statistics
+        mean_interval = np.mean(intervals)
+        std_interval = np.std(intervals)
+        min_interval = np.min(intervals)
+        max_interval = np.max(intervals)
+        
+        # Automation assessment based on your criteria
+        if len(tick_times) >= 15 and mean_interval < 0.25:
+            assessment = "AUTOMATED"
+        elif len(tick_times) >= 10 and mean_interval < 0.3:
+            assessment = "LIKELY_AUTOMATED"
+        else:
+            assessment = "MANUAL"
+        
+        print(f"  Analysis complete: {len(tick_times)} ticks, mean interval: {mean_interval:.3f}s, assessment: {assessment}")
+        
+        # Return results
+        return {
+            'filename': os.path.basename(wav_file),
+            'ticks_found': len(tick_times),
+            'first_tick_time': round(tick_times[0], 3),
+            'last_tick_time': round(tick_times[-1], 3),
+            'total_duration': round(tick_times[-1] - tick_times[0], 3),
+            'mean_interval': round(mean_interval, 3),
+            'std_interval': round(std_interval, 3),
+            'min_interval': round(min_interval, 3),
+            'max_interval': round(max_interval, 3),
+            'assessment': assessment,
+            'error': None
+        }
+        
+    except Exception as e:
+        print(f"  ERROR: {str(e)}")
+        return {
+            'filename': os.path.basename(wav_file),
+            'ticks_found': 0,
+            'first_tick_time': None,
+            'last_tick_time': None,
+            'total_duration': None,
+            'mean_interval': None,
+            'std_interval': None,
+            'min_interval': None,
+            'max_interval': None,
+            'assessment': 'ERROR',
+            'error': str(e)
+        }
+
+def analyze_directory(directory_path, output_csv='tick_analysis_results.csv'):
+    """
+    Analyze all WAV files in a directory and save results to CSV.
+    """
+    # Find all WAV files
+    wav_pattern = os.path.join(directory_path, "*.wav")
+    wav_files = glob.glob(wav_pattern)
+    
+    if not wav_files:
+        print(f"No WAV files found in {directory_path}")
+        return None
+    
+    print(f"Found {len(wav_files)} WAV files")
+    print("Processing files...")
+    print("-" * 50)
+    
+    # Analyze each file
+    results = []
+    for i, wav_file in enumerate(wav_files, 1):
+        print(f"\n[{i}/{len(wav_files)}] {os.path.basename(wav_file)}")
+        result = analyze_ticks(wav_file)
+        results.append(result)
+    
+    # Create DataFrame
+    df = pd.DataFrame(results)
+    
+    # Save to CSV
+    df.to_csv(output_csv, index=False)
+    print(f"\n" + "=" * 50)
+    print(f"Results saved to: {output_csv}")
+    
+    # Print summary
+    print(f"\nSUMMARY:")
+    print(f"Total files processed: {len(results)}")
+    print(f"Files with errors: {len(df[df['error'].notna()])}")
+    print(f"Automated calls: {len(df[df['assessment'] == 'AUTOMATED'])}")
+    print(f"Likely automated: {len(df[df['assessment'] == 'LIKELY_AUTOMATED'])}")
+    print(f"Manual calls: {len(df[df['assessment'] == 'MANUAL'])}")
+    print(f"Insufficient data: {len(df[df['assessment'] == 'INSUFFICIENT_DATA'])}")
+    
+    return df
+
+def print_summary_stats(csv_file):
+    """
+    Print summary statistics from the CSV results.
+    """
+    df = pd.read_csv(csv_file)
+    
+    # Filter out error cases for stats
+    valid_df = df[(df['error'].isna()) & (df['ticks_found'] >= 2)]
+    
+    if len(valid_df) == 0:
+        print("No valid results found for statistics")
+        return
+    
+    print("\nTICK ANALYSIS SUMMARY STATISTICS:")
+    print("=" * 50)
+    print(f"Valid files analyzed: {len(valid_df)}")
+    print(f"Average ticks found: {valid_df['ticks_found'].mean():.1f}")
+    print(f"Average mean interval: {valid_df['mean_interval'].mean():.3f} seconds")
+    print(f"Average total duration: {valid_df['total_duration'].mean():.3f} seconds")
+    
+    print("\nBY ASSESSMENT TYPE:")
+    for assessment in valid_df['assessment'].unique():
+        subset = valid_df[valid_df['assessment'] == assessment]
+        if len(subset) > 0:
+            print(f"\n{assessment} ({len(subset)} files):")
+            print(f"  Avg ticks: {subset['ticks_found'].mean():.1f}")
+            print(f"  Avg interval: {subset['mean_interval'].mean():.3f}s")
+            print(f"  Avg duration: {subset['total_duration'].mean():.3f}s")
+
+# Example usage:
+# df = analyze_directory('/path/to/wav/files')
+# print_summary_stats('tick_analysis_results.csv')
