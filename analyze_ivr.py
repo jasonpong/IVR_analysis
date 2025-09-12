@@ -148,18 +148,74 @@ def analyze_ticks(wav_file):
         
         print(f"  Found {len(starts)} potential events")
         
-        # Filter by duration (5ms to 150ms)
-        min_duration_samples = max(1, int(0.005 * sample_rate))
-        max_duration_samples = int(0.15 * sample_rate)
+        # Much stricter filtering for tick pulses vs speech
+        min_duration_samples = max(1, int(0.003 * sample_rate))   # 3ms minimum (very short)
+        max_duration_samples = int(0.05 * sample_rate)           # 50ms maximum (reject longer speech sounds)
         
-        tick_times = []
+        tick_candidates = []
         for start, end in zip(starts, ends):
             duration_samples = end - start
+            duration_seconds = duration_samples / sample_rate
+            
             if min_duration_samples <= duration_samples <= max_duration_samples:
-                tick_time = start / sample_rate
-                tick_times.append(tick_time)
+                # Additional checks for tick-like characteristics
+                segment_envelope = envelope_smooth[start:end]
+                
+                # Check for sharp rise/fall (tick-like vs speech-like)
+                rise_samples = min(10, len(segment_envelope) // 4)  # Check first 25% or 10 samples
+                fall_samples = min(10, len(segment_envelope) // 4)  # Check last 25% or 10 samples
+                
+                if len(segment_envelope) > rise_samples + fall_samples:
+                    rise_slope = (np.max(segment_envelope[:rise_samples]) - segment_envelope[0]) / rise_samples
+                    fall_slope = (segment_envelope[-1] - np.max(segment_envelope[-fall_samples:])) / fall_samples
+                    
+                    # Ticks should have sharp rise and fall
+                    is_sharp = rise_slope > threshold * 0.1 and abs(fall_slope) > threshold * 0.1
+                else:
+                    is_sharp = True  # Very short pulses are likely ticks
+                
+                # Check for quiet periods before and after (tick characteristic)
+                quiet_before = True
+                quiet_after = True
+                
+                # Check 20ms before and after for quietness
+                quiet_window = int(0.02 * sample_rate)
+                
+                if start > quiet_window:
+                    before_level = np.mean(envelope_smooth[start-quiet_window:start])
+                    quiet_before = before_level < threshold * 0.3
+                
+                if end + quiet_window < len(envelope_smooth):
+                    after_level = np.mean(envelope_smooth[end:end+quiet_window])
+                    quiet_after = after_level < threshold * 0.3
+                
+                # Peak amplitude should be significantly above background
+                peak_amplitude = np.max(segment_envelope)
+                is_prominent = peak_amplitude > threshold * 1.5
+                
+                # Score this candidate
+                tick_score = 0
+                if is_sharp: tick_score += 1
+                if quiet_before: tick_score += 1  
+                if quiet_after: tick_score += 1
+                if is_prominent: tick_score += 1
+                if duration_seconds < 0.03: tick_score += 1  # Very short is good
+                
+                tick_candidates.append({
+                    'time': start / sample_rate,
+                    'duration': duration_seconds,
+                    'score': tick_score,
+                    'amplitude': peak_amplitude
+                })
         
-        print(f"  Valid ticks after duration filtering: {len(tick_times)}")
+        # Filter candidates by score (need at least 3/5 to be considered a tick)
+        tick_times = []
+        for candidate in tick_candidates:
+            if candidate['score'] >= 3:
+                tick_times.append(candidate['time'])
+        
+        print(f"  Tick candidates: {len(tick_candidates)}")
+        print(f"  Valid ticks after pulse analysis: {len(tick_times)}")
         
         # Check if we have enough ticks for analysis
         if len(tick_times) < 2:
