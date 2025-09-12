@@ -90,9 +90,17 @@ def analyze_ticks(wav_file):
         
         print(f"  Audio loaded: {len(audio)} samples, {len(audio)/sample_rate:.2f}s, {sample_rate}Hz")
         
-        # Get first 30 seconds
-        end_sample = min(len(audio), 30 * sample_rate)
-        audio = audio[:end_sample]
+        # Get 30 seconds starting from 14 seconds
+        start_sample = int(14 * sample_rate)  # Start at 14 seconds
+        end_sample = min(len(audio), start_sample + 30 * sample_rate)  # 30 seconds from start
+        
+        if start_sample >= len(audio):
+            raise ValueError("Start time (14s) is beyond audio duration")
+            
+        audio = audio[start_sample:end_sample]
+        analysis_duration = len(audio) / sample_rate
+        
+        print(f"  Using 14-{14 + analysis_duration:.1f} second window ({analysis_duration:.1f}s total)")
         
         # Check if we have enough data
         if len(audio) < sample_rate:  # Less than 1 second
@@ -107,7 +115,7 @@ def analyze_ticks(wav_file):
         if high_freq >= 1.0:
             raise ValueError(f"Sample rate {sample_rate}Hz too low for 1500Hz filter (Nyquist: {nyquist}Hz)")
         
-        print(f"  Applying bandpass filter: 1100-1500 Hz (normalized: {low_freq:.3f}-{high_freq:.3f})")
+        print(f"  Applying bandpass filter: 1100-1500 Hz")
         
         b, a = signal.butter(4, [low_freq, high_freq], btype='band')
         filtered_audio = signal.filtfilt(b, a, audio)
@@ -224,16 +232,9 @@ def analyze_ticks(wav_file):
             'error': str(e)
         }
 
-def analyze_directory(directory_path, output_csv='tick_analysis_results.csv', start_time=None, end_time=None, target_ticks=16):
+def analyze_directory(directory_path, output_csv='tick_analysis_results.csv'):
     """
     Analyze all WAV files in a directory and save results to CSV.
-    
-    Args:
-        directory_path: Path to directory containing WAV files
-        output_csv: Output CSV filename
-        start_time: Start time in seconds for analysis window
-        end_time: End time in seconds for analysis window
-        target_ticks: Expected number of ticks in dialing sequence
     """
     # Find all WAV files
     wav_pattern = os.path.join(directory_path, "*.wav")
@@ -244,8 +245,6 @@ def analyze_directory(directory_path, output_csv='tick_analysis_results.csv', st
         return None
     
     print(f"Found {len(wav_files)} WAV files")
-    if start_time is not None or end_time is not None:
-        print(f"Analysis window: {start_time or 0}s - {end_time or 'end'}s")
     print("Processing files...")
     print("-" * 50)
     
@@ -253,7 +252,7 @@ def analyze_directory(directory_path, output_csv='tick_analysis_results.csv', st
     results = []
     for i, wav_file in enumerate(wav_files, 1):
         print(f"\n[{i}/{len(wav_files)}] {os.path.basename(wav_file)}")
-        result = analyze_ticks(wav_file, start_time, end_time, target_ticks)
+        result = analyze_ticks(wav_file)
         results.append(result)
     
     # Create DataFrame
@@ -271,14 +270,9 @@ def analyze_directory(directory_path, output_csv='tick_analysis_results.csv', st
     print(f"Automated calls: {len(df[df['assessment'] == 'AUTOMATED'])}")
     print(f"Likely automated: {len(df[df['assessment'] == 'LIKELY_AUTOMATED'])}")
     print(f"Manual calls: {len(df[df['assessment'] == 'MANUAL'])}")
-    print(f"No sequence found: {len(df[df['assessment'] == 'NO_SEQUENCE_FOUND'])}")
+    print(f"Insufficient data: {len(df[df['assessment'] == 'INSUFFICIENT_DATA'])}")
     
     return df
-
-# Add convenience functions for common time windows
-def analyze_directory_dialing_window(directory_path, start_time=18, end_time=24, output_csv='dialing_analysis.csv'):
-    """Analyze just the dialing portion (default 18-24 seconds)"""
-    return analyze_directory(directory_path, output_csv, start_time, end_time)
 
 def print_summary_stats(csv_file):
     """
