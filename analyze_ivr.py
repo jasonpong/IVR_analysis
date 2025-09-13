@@ -209,12 +209,12 @@ def analyze_ticks(wav_file):
                 if is_prominent: 
                     tick_score += 1
                     score_details.append("prominent")
-                if duration_seconds < 0.025:  # Very short pulses (was 0.04)
+                if duration_seconds < 0.04:  # Back to 40ms
                     tick_score += 1
                     score_details.append("short")
                 
-                # Accept if score >= 3 (tightened from 2)
-                if tick_score >= 3:
+                # Accept if score >= 2 (back to working level)
+                if tick_score >= 2:
                     tick_time = (start / sample_rate) + 18  # Add 18s offset for actual time
                     tick_times.append(tick_time)
                     
