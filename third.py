@@ -49,8 +49,9 @@ def detect_ticks(wav_file):
     envelope = np.abs(signal.hilbert(filtered))
     threshold = np.percentile(envelope, 90) * 1.5
     
-    # Initial peak detection
-    peaks, _ = signal.find_peaks(envelope, height=threshold, distance=int(0.01*sample_rate))
+    # Initial peak detection with better separation
+    min_peak_distance = int(0.1 * sample_rate)  # 100ms minimum between peaks
+    peaks, _ = signal.find_peaks(envelope, height=threshold, distance=min_peak_distance)
     
     # Filter peaks by tick duration (10-50ms)
     valid_peaks = []
