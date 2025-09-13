@@ -72,7 +72,7 @@ def read_wav_file(wav_file):
 
 def analyze_ticks(wav_file):
     """
-    Analyze tick sounds in first 30 seconds of WAV file.
+    Analyze tick sounds in WAV file - UPDATED WITH CORRECT AUTOMATION DETECTION.
     
     Returns:
         dict with tick analysis results
@@ -148,11 +148,14 @@ def analyze_ticks(wav_file):
         
         print(f"  Found {len(starts)} potential events")
         
-        # Loosened filtering for tick pulses
-        min_duration_samples = max(1, int(0.003 * sample_rate))   # 3ms minimum
-        max_duration_samples = int(0.1 * sample_rate)            # 100ms maximum (loosened from 50ms)
-        
+        # Initialize variables
+        tick_times = []
         tick_candidates = []
+        
+        # Much tighter filtering based on waveform analysis
+        min_duration_samples = max(1, int(0.005 * sample_rate))   # 5ms minimum (tighter)
+        max_duration_samples = int(0.03 * sample_rate)           # 30ms maximum (much tighter - pulses are ~10-20ms)
+        
         for start, end in zip(starts, ends):
             duration_samples = end - start
             duration_seconds = duration_samples / sample_rate
@@ -173,26 +176,22 @@ def analyze_ticks(wav_file):
                     # Much more lenient slope requirements
                     is_sharp = rise_slope > threshold * 0.05 or abs(fall_slope) > threshold * 0.05
                 
-                # Loosened quiet period checks
-                quiet_before = True
-                quiet_after = True
+                # Much stricter quiet period checks (baseline is very clean)
+                quiet_window = int(0.01 * sample_rate)  # 10ms window (reduced)
                 before_level = 0
                 after_level = 0
                 
-                # Check 15ms before and after (reduced from 20ms)
-                quiet_window = int(0.015 * sample_rate)
-                
                 if start > quiet_window:
                     before_level = np.mean(envelope_smooth[start-quiet_window:start])
-                    quiet_before = before_level < threshold * 0.5  # More lenient (was 0.3)
+                    quiet_before = before_level < threshold * 0.2  # Much stricter (was 0.5)
                 
                 if end + quiet_window < len(envelope_smooth):
                     after_level = np.mean(envelope_smooth[end:end+quiet_window])
-                    quiet_after = after_level < threshold * 0.5   # More lenient (was 0.3)
+                    quiet_after = after_level < threshold * 0.2   # Much stricter (was 0.5)
                 
-                # Peak amplitude check (loosened)
+                # Peak amplitude check (can be stricter - these pulses are very prominent)
                 peak_amplitude = np.max(segment_envelope)
-                is_prominent = peak_amplitude > threshold * 1.2  # Reduced from 1.5
+                is_prominent = peak_amplitude > threshold * 2.0  # Much stricter (was 1.2)
                 
                 # Scoring system (loosened)
                 tick_score = 0
@@ -210,48 +209,85 @@ def analyze_ticks(wav_file):
                 if is_prominent: 
                     tick_score += 1
                     score_details.append("prominent")
-                if duration_seconds < 0.04:  # Increased from 0.03
+                if duration_seconds < 0.025:  # Very short pulses (was 0.04)
                     tick_score += 1
                     score_details.append("short")
                 
-                tick_candidates.append({
-                    'time': (start / sample_rate) + 18,  # Add 18s offset for actual time
-                    'duration': duration_seconds,
-                    'score': tick_score,
-                    'score_details': score_details,
-                    'amplitude': peak_amplitude,
-                    'before_level': before_level,
-                    'after_level': after_level,
-                    'is_sharp': is_sharp,
-                    'quiet_before': quiet_before,
-                    'quiet_after': quiet_after,
-                    'is_prominent': is_prominent
-                })
+                # Accept if score >= 3 (tightened from 2)
+                if tick_score >= 3:
+                    tick_time = (start / sample_rate) + 18  # Add 18s offset for actual time
+                    tick_times.append(tick_time)
+                    
+                    tick_candidates.append({
+                        'time': tick_time,
+                        'duration': duration_seconds,
+                        'score': tick_score,
+                        'score_details': score_details,
+                        'amplitude': peak_amplitude,
+                        'before_level': before_level,
+                        'after_level': after_level,
+                        'is_sharp': is_sharp,
+                        'quiet_before': quiet_before,
+                        'quiet_after': quiet_after,
+                        'is_prominent': is_prominent
+                    })
         
-        # Loosened acceptance criteria - need at least 2/5 (was 3/5)
-        accepted_ticks = []
-        rejected_ticks = []
-        tick_times = []  # Reset the list
+        print(f"  Valid ticks found: {len(tick_times)}")
         
-        for candidate in tick_candidates:
-            if candidate['score'] >= 2:
-                accepted_ticks.append(candidate)
-                tick_times.append(candidate['time'])
+        # Cluster ticks by timing consistency AND amplitude similarity
+        if len(tick_candidates) > 16:
+            print(f"  Found {len(tick_candidates)} candidates - clustering to find main sequence...")
+            
+            # Group ticks by similar amplitude (within 20% of each other)
+            amplitude_clusters = []
+            for candidate in tick_candidates:
+                placed = False
+                for cluster in amplitude_clusters:
+                    cluster_mean_amp = np.mean([c['amplitude'] for c in cluster])
+                    if abs(candidate['amplitude'] - cluster_mean_amp) / cluster_mean_amp < 0.2:  # 20% tolerance
+                        cluster.append(candidate)
+                        placed = True
+                        break
+                if not placed:
+                    amplitude_clusters.append([candidate])
+            
+            # For each amplitude cluster, check timing consistency
+            best_cluster = []
+            best_score = 0
+            
+            for cluster in amplitude_clusters:
+                if len(cluster) < 10:  # Need reasonable number of ticks
+                    continue
+                
+                # Sort by time and calculate intervals
+                cluster_sorted = sorted(cluster, key=lambda x: x['time'])
+                cluster_times = [c['time'] for c in cluster_sorted]
+                cluster_intervals = [cluster_times[i+1] - cluster_times[i] for i in range(len(cluster_times)-1)]
+                
+                if len(cluster_intervals) > 0:
+                    # Score cluster by consistency and size
+                    interval_cv = np.std(cluster_intervals) / np.mean(cluster_intervals)
+                    amplitude_cv = np.std([c['amplitude'] for c in cluster_sorted]) / np.mean([c['amplitude'] for c in cluster_sorted])
+                    
+                    # Combined score: size, timing consistency, amplitude consistency
+                    cluster_score = len(cluster) * (1.0 - min(interval_cv, 1.0)) * (1.0 - min(amplitude_cv, 1.0))
+                    
+                    print(f"    Cluster: {len(cluster)} ticks, interval CV: {interval_cv:.3f}, amplitude CV: {amplitude_cv:.3f}, score: {cluster_score:.1f}")
+                    
+                    if cluster_score > best_score:
+                        best_score = cluster_score
+                        best_cluster = cluster_sorted
+            
+            if best_cluster:
+                print(f"  Selected cluster: {len(best_cluster)} ticks with score {best_score:.1f}")
+                tick_candidates = best_cluster
+                tick_times = [c['time'] for c in best_cluster]
             else:
-                rejected_ticks.append(candidate)
-        
-        print(f"  Tick candidates: {len(tick_candidates)}")
-        print(f"  Accepted ticks: {len(accepted_ticks)}")
-        print(f"  Rejected ticks: {len(rejected_ticks)}")
+                print(f"  No good cluster found, keeping all candidates")
         
         # Show details of first few ticks for debugging
-        for i, tick in enumerate(accepted_ticks[:5]):
-            print(f"    Tick {i+1}: {tick['time']:.3f}s, score={tick['score']}/5, criteria: {','.join(tick['score_details'])}")
-        
-        if rejected_ticks:
-            print(f"  Rejected examples:")
-            for i, tick in enumerate(rejected_ticks[:3]):
-                print(f"    Rejected {i+1}: {tick['time']:.3f}s, score={tick['score']}/5, criteria: {','.join(tick['score_details'])}")
+        for i, tick in enumerate(tick_candidates[:5]):
+            print(f"    Tick {i+1}: {tick['time']:.3f}s, score={tick['score']}/5, amp={tick['amplitude']:.0f}, criteria: {','.join(tick['score_details'])}")
         
         tick_times = sorted(tick_times)
         
@@ -288,15 +324,32 @@ def analyze_ticks(wav_file):
         else:
             mean_interval = std_interval = min_interval = max_interval = 0
         
-        # Automation assessment based on your criteria
-        if len(tick_times) >= 15 and mean_interval < 0.25:
-            assessment = "AUTOMATED"
-        elif len(tick_times) >= 10 and mean_interval < 0.3:
-            assessment = "LIKELY_AUTOMATED"
-        else:
-            assessment = "MANUAL"
+        # FIXED AUTOMATION ASSESSMENT - Based on your actual data patterns
+        num_ticks = len(tick_times)
         
-        print(f"  Analysis complete: {len(tick_times)} ticks, mean interval: {mean_interval:.3f}s, assessment: {assessment}")
+        # Calculate interval statistics if we have enough ticks
+        if len(intervals) > 0:
+            cv = std_interval / mean_interval if mean_interval > 0 else float('inf')
+        else:
+            cv = 0
+        
+        # CORRECTED automation criteria based on your actual data patterns
+        if num_ticks >= 15:  # 15+ ticks is clearly automated
+            assessment = "AUTOMATED"
+        elif num_ticks >= 12:  # 12-14 ticks likely automated  
+            if cv < 1.5:  # Reasonable consistency (was too strict at 0.3)
+                assessment = "LIKELY_AUTOMATED"
+            else:
+                assessment = "POSSIBLE_AUTOMATED"
+        elif num_ticks >= 8:  # 8-11 ticks might be automated
+            if cv < 1.0:  # Good consistency
+                assessment = "POSSIBLE_AUTOMATED"
+            else:
+                assessment = "LIKELY_MANUAL"
+        else:  # < 8 ticks
+            assessment = "INSUFFICIENT_TICKS"
+        
+        print(f"  Analysis: {num_ticks} ticks, mean interval: {mean_interval:.3f}s, CV: {cv:.3f}, assessment: {assessment}")
         
         # Return results
         return {
@@ -366,7 +419,8 @@ def analyze_directory(directory_path, output_csv='tick_analysis_results.csv'):
     print(f"Files with errors: {len(df[df['error'].notna()])}")
     print(f"Automated calls: {len(df[df['assessment'] == 'AUTOMATED'])}")
     print(f"Likely automated: {len(df[df['assessment'] == 'LIKELY_AUTOMATED'])}")
-    print(f"Manual calls: {len(df[df['assessment'] == 'MANUAL'])}")
+    print(f"Possible automated: {len(df[df['assessment'] == 'POSSIBLE_AUTOMATED'])}")
+    print(f"Manual calls: {len(df[df['assessment'] == 'LIKELY_MANUAL'])}")
     print(f"Insufficient data: {len(df[df['assessment'] == 'INSUFFICIENT_DATA'])}")
     
     return df
