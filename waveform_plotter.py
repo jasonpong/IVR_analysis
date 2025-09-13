@@ -152,7 +152,14 @@ def plot_multiple_files(wav_files, start_time=19, end_time=26):
         plot_waveform(wav_file, start_time, end_time)
 
 # Usage examples:
-# plot_waveform('call.wav')  # Default 19-26 seconds
-# plot_waveform('call.wav', 18, 25)  # Custom time range
-# plot_waveform('call.wav', show_filtered=False)  # Just original + peaks
-# plot_multiple_files(['file1.wav', 'file2.wav'])  # Compare multiple files
+# Basic plot with spectral analysis
+# plot_waveform('call.wav')
+
+# Skip spectral analysis for faster plotting  
+# plot_waveform('call.wav', show_spectral=False)
+
+# Custom time range with full analysis
+# plot_waveform('call.wav', 18, 25, show_spectral=True)
+
+# Compare noise between automated and manual calls
+# plot_multiple_files(['automated.wav', 'manual.wav'])
