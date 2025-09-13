@@ -280,10 +280,13 @@ def analyze_ticks(wav_file):
         intervals = np.array(intervals)
         
         # Calculate statistics
-        mean_interval = np.mean(intervals)
-        std_interval = np.std(intervals)
-        min_interval = np.min(intervals)
-        max_interval = np.max(intervals)
+        if len(intervals) > 0:
+            mean_interval = np.mean(intervals)
+            std_interval = np.std(intervals)
+            min_interval = np.min(intervals)
+            max_interval = np.max(intervals)
+        else:
+            mean_interval = std_interval = min_interval = max_interval = 0
         
         # Automation assessment based on your criteria
         if len(tick_times) >= 15 and mean_interval < 0.25:
@@ -400,7 +403,3 @@ def print_summary_stats(csv_file):
 # Example usage:
 # df = analyze_directory('/path/to/wav/files')
 # print_summary_stats('tick_analysis_results.csv')
-
-
-
-
