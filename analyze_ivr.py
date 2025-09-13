@@ -90,17 +90,17 @@ def analyze_ticks(wav_file):
         
         print(f"  Audio loaded: {len(audio)} samples, {len(audio)/sample_rate:.2f}s, {sample_rate}Hz")
         
-        # Get 30 seconds starting from 14 seconds
-        start_sample = int(14 * sample_rate)  # Start at 14 seconds
-        end_sample = min(len(audio), start_sample + 30 * sample_rate)  # 30 seconds from start
+        # Get 8 seconds from 18 to 26 seconds (precise dialing period)
+        start_sample = int(18 * sample_rate)  # Start at 18 seconds
+        end_sample = min(len(audio), int(26 * sample_rate))  # End at 26 seconds (18 + 8)
         
         if start_sample >= len(audio):
-            raise ValueError("Start time (14s) is beyond audio duration")
+            raise ValueError("Start time (18s) is beyond audio duration")
             
         audio = audio[start_sample:end_sample]
         analysis_duration = len(audio) / sample_rate
         
-        print(f"  Using 14-{14 + analysis_duration:.1f} second window ({analysis_duration:.1f}s total)")
+        print(f"  Using 18-26 second window ({analysis_duration:.1f}s total)")
         
         # Check if we have enough data
         if len(audio) < sample_rate:  # Less than 1 second
