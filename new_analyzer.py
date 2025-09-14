@@ -1,10 +1,85 @@
 import numpy as np
 import scipy.signal as signal
-from scipy.io import wavfile
 import matplotlib.pyplot as plt
 from scipy.stats import describe
+import audioop
+import struct
 import warnings
 warnings.filterwarnings('ignore')
+
+def load_mulaw_wav(filepath):
+    """
+    Load mu-law encoded WAV file bypassing scipy.io.wavfile
+    """
+    print(f"  Loading mu-law file: {filepath}")
+    
+    with open(filepath, 'rb') as f:
+        file_data = f.read()
+    
+    # Parse WAV header to find data chunk
+    # Standard WAV structure: RIFF header (12 bytes) + fmt chunk + data chunk
+    
+    # Check if it's a WAV file
+    if file_data[:4] != b'RIFF':
+        print("  Warning: Not a standard RIFF WAV file")
+    
+    # Find the 'data' chunk
+    data_start = file_data.find(b'data')
+    if data_start == -1:
+        # Fallback: try fixed header sizes
+        print("  Could not find 'data' chunk, trying fixed offsets...")
+        for header_size in [44, 58, 24, 20, 16]:
+            try:
+                audio_data = file_data[header_size:]
+                if len(audio_data) == 0:
+                    continue
+                    
+                print(f"  Trying header size: {header_size} bytes, data: {len(audio_data)} bytes")
+                
+                # Convert mu-law to linear
+                linear_data = audioop.ulaw2lin(audio_data, 1)
+                
+                # Convert to numpy array
+                audio = np.frombuffer(linear_data, dtype=np.int16)
+                audio = audio.astype(np.float32) / 32768.0
+                
+                # Use 8kHz for telephony
+                sample_rate = 8000
+                
+                print(f"  Success! Converted {len(audio)} samples at {sample_rate}Hz")
+                return sample_rate, audio
+                
+            except Exception as e:
+                continue
+    else:
+        # Found 'data' chunk - read the size and data
+        data_size_start = data_start + 4
+        data_size = struct.unpack('<I', file_data[data_size_start:data_size_start + 4])[0]
+        audio_data_start = data_start + 8
+        audio_data = file_data[audio_data_start:audio_data_start + data_size]
+        
+        print(f"  Found data chunk at byte {data_start}, size: {data_size} bytes")
+        
+        try:
+            # Convert mu-law to linear
+            linear_data = audioop.ulaw2lin(audio_data, 1)
+            
+            # Convert to numpy array
+            audio = np.frombuffer(linear_data, dtype=np.int16)
+            audio = audio.astype(np.float32) / 32768.0
+            
+            # Use 8kHz for telephony
+            sample_rate = 8000
+            
+            print(f"  Success! Converted {len(audio)} samples at {sample_rate}Hz")
+            return sample_rate, audio
+            
+        except Exception as e:
+            print(f"  Error during conversion: {e}")
+            raise
+    
+    raise ValueError("Could not load mu-law WAV file")
+
 
 def plot_audio_for_inspection(filepath, time_range=(0, None), figsize=(16, 8)):
     """
@@ -22,20 +97,8 @@ def plot_audio_for_inspection(filepath, time_range=(0, None), figsize=(16, 8)):
     
     print(f"Loading: {filepath}")
     
-    # Load the WAV file
-    sample_rate, audio_data = wavfile.read(filepath)
-    
-    # Convert to float and normalize
-    if audio_data.dtype == np.int8 or audio_data.dtype == np.uint8:
-        audio_float = audio_data.astype(np.float32) / 128.0
-    elif audio_data.dtype == np.int16:
-        audio_float = audio_data.astype(np.float32) / 32768.0
-    else:
-        audio_float = audio_data.astype(np.float32)
-    
-    # Handle stereo
-    if len(audio_float.shape) > 1:
-        audio_float = np.mean(audio_float, axis=1)
+    # Load using mu-law method
+    sample_rate, audio_float = load_mulaw_wav(filepath)
     
     # Time axis
     time = np.arange(len(audio_float)) / sample_rate
@@ -76,11 +139,15 @@ def plot_audio_for_inspection(filepath, time_range=(0, None), figsize=(16, 8)):
                                    noverlap=min(256, len(audio_segment)//2))
     t = t + time_segment[0]  # Adjust time offset
     
-    pcm = axes[1].pcolormesh(t, f[f <= 4000], 10 * np.log10(Sxx[f <= 4000] + 1e-10), 
+    # Limit frequency range for telephony
+    freq_limit = min(4000, sample_rate // 2)
+    freq_mask = f <= freq_limit
+    
+    pcm = axes[1].pcolormesh(t, f[freq_mask], 10 * np.log10(Sxx[freq_mask] + 1e-10), 
                              shading='gouraud', cmap='viridis')
     axes[1].set_ylabel('Frequency (Hz)')
     axes[1].set_xlabel('Time (seconds)')
-    axes[1].set_title('Spectrogram (0-4000 Hz)')
+    axes[1].set_title(f'Spectrogram (0-{freq_limit} Hz)')
     plt.colorbar(pcm, ax=axes[1], label='Power (dB)')
     axes[1].set_xlim(time_segment[0], time_segment[-1])
     
@@ -122,20 +189,8 @@ def analyze_tick_region(filepath, start_time, end_time, label="Unknown", show_pl
     print(f"Label: {label}")
     print(f"{'='*80}")
     
-    # Load the WAV file
-    sample_rate, audio_data = wavfile.read(filepath)
-    
-    # Convert to float and normalize
-    if audio_data.dtype == np.int8 or audio_data.dtype == np.uint8:
-        audio_float = audio_data.astype(np.float32) / 128.0
-    elif audio_data.dtype == np.int16:
-        audio_float = audio_data.astype(np.float32) / 32768.0
-    else:
-        audio_float = audio_data.astype(np.float32)
-    
-    # Handle stereo
-    if len(audio_float.shape) > 1:
-        audio_float = np.mean(audio_float, axis=1)
+    # Load using mu-law method
+    sample_rate, audio_float = load_mulaw_wav(filepath)
     
     # Extract the specified region
     start_sample = int(start_time * sample_rate)
