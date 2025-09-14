@@ -76,23 +76,28 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
         plt.colorbar(im, ax=axes[plot_idx], label='Power (dB)')
         plot_idx += 1
         
-        # DEAD AIR FFT ANALYSIS
+        # DEAD AIR FFT ANALYSIS - USE UNFILTERED AUDIO
         print("=== DEAD AIR SPECTRAL ANALYSIS ===")
         
-        # Find dead air in extended window (±10 seconds)
+        # Find dead air in extended window (±10 seconds) - UNFILTERED AUDIO
         extended_start = max(0, start_sample - int(10.0 * sample_rate))
         extended_end = min(len(audio), end_sample + int(10.0 * sample_rate))
-        extended_audio = audio[extended_start:extended_end]
+        extended_audio_unfiltered = audio[extended_start:extended_end]  # Raw unfiltered audio
         
-        # Dead air detection
-        dead_air_threshold = np.percentile(np.abs(extended_audio), 5)
+        print(f"Extended window: {len(extended_audio_unfiltered)/sample_rate:.1f} seconds")
+        print(f"Audio range: {np.min(extended_audio_unfiltered):.6f} to {np.max(extended_audio_unfiltered):.6f}")
+        
+        # Dead air detection on unfiltered audio
+        dead_air_threshold = np.percentile(np.abs(extended_audio_unfiltered), 10)  # Try 10th percentile
         min_dead_air_duration = int(0.5 * sample_rate)  # 0.5 seconds minimum
         
         print(f"Dead air threshold: {dead_air_threshold:.6f}")
         print(f"Minimum duration: {min_dead_air_duration/sample_rate:.1f} seconds")
         
-        # Find quiet segments
-        quiet_mask = np.abs(extended_audio) < dead_air_threshold
+        # Find quiet segments in unfiltered audio
+        quiet_mask = np.abs(extended_audio_unfiltered) < dead_air_threshold
+        print(f"Samples below threshold: {np.sum(quiet_mask)} / {len(quiet_mask)} ({100*np.sum(quiet_mask)/len(quiet_mask):.1f}%)")
+        
         quiet_segments = []
         in_quiet = False
         quiet_start = 0
@@ -111,17 +116,17 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
         
         print(f"Found {len(quiet_segments)} dead air segments")
         
-        # FFT ANALYSIS OF DEAD AIR SEGMENTS
+        # FFT ANALYSIS OF DEAD AIR SEGMENTS - UNFILTERED
         colors = ['red', 'orange', 'purple', 'brown']
         
         for i, (start_idx, end_idx) in enumerate(quiet_segments[:4]):
-            segment = extended_audio[start_idx:end_idx]
+            segment = extended_audio_unfiltered[start_idx:end_idx]  # Use unfiltered segment
             segment_duration = len(segment) / sample_rate
             
             print(f"\nSegment {i+1}: {segment_duration:.2f} seconds")
             
             if segment_duration >= 0.5:
-                # FFT CALCULATION - THIS IS THE FFT CODE
+                # FFT CALCULATION - THIS IS THE FFT CODE ON UNFILTERED AUDIO
                 freqs = np.fft.rfftfreq(len(segment), 1/sample_rate)
                 fft_result = np.fft.rfft(segment)
                 power_spectrum = 20 * np.log10(np.abs(fft_result) + 1e-10)
