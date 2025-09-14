@@ -24,16 +24,9 @@ def read_mulaw_wav(wav_file):
                 continue
     raise Exception("Could not read file")
 
-def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show_peaks=True):
+def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show_peaks=True, show_spectral=True):
     """
-    Plot waveform with tick detection overlay
-    
-    Args:
-        wav_file: Path to WAV file
-        start_time: Start time in seconds
-        end_time: End time in seconds
-        show_filtered: Show bandpass filtered signal
-        show_peaks: Show detected tick peaks
+    Plot waveform with tick detection overlay and dead air spectral analysis
     """
     
     # Read audio
@@ -50,45 +43,155 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
     time_axis = np.linspace(start_time, start_time + len(audio_segment)/sample_rate, len(audio_segment))
     
     # Set up plot
-    fig_height = 12 if show_filtered else 8
-    fig, axes = plt.subplots(3 if show_filtered else 2, 1, figsize=(15, fig_height))
-    if not show_filtered:
-        axes = [axes[0], axes[1], None]
+    num_plots = 2
+    if show_filtered: num_plots += 1
+    if show_spectral: num_plots += 2  # Spectrogram + dead air analysis
+    
+    fig_height = 4 * num_plots
+    fig, axes = plt.subplots(num_plots, 1, figsize=(15, fig_height))
+    if num_plots == 1:
+        axes = [axes]
+    
+    plot_idx = 0
     
     # Plot 1: Original waveform
-    axes[0].plot(time_axis, audio_segment, color='blue', linewidth=0.8, alpha=0.8)
-    axes[0].set_title(f'Original Audio: {wav_file} ({start_time}-{end_time}s)', fontweight='bold')
-    axes[0].set_ylabel('Amplitude')
-    axes[0].grid(True, alpha=0.3)
-    axes[0].set_xlim(start_time, end_time)
+    axes[plot_idx].plot(time_axis, audio_segment, color='blue', linewidth=0.8, alpha=0.8)
+    axes[plot_idx].set_title(f'Original Audio: {wav_file} ({start_time}-{end_time}s)', fontweight='bold')
+    axes[plot_idx].set_ylabel('Amplitude')
+    axes[plot_idx].grid(True, alpha=0.3)
+    axes[plot_idx].set_xlim(start_time, end_time)
+    plot_idx += 1
     
+    # Spectral analysis
+    if show_spectral:
+        # Spectrogram
+        f, t, Sxx = signal.spectrogram(audio_segment, sample_rate, nperseg=512, noverlap=256)
+        t_offset = t + start_time
+        
+        im = axes[plot_idx].pcolormesh(t_offset, f, 10 * np.log10(Sxx + 1e-10), 
+                                      shading='gouraud', cmap='viridis')
+        axes[plot_idx].set_title('Spectrogram', fontweight='bold')
+        axes[plot_idx].set_ylabel('Frequency (Hz)')
+        axes[plot_idx].set_ylim(0, 4000)
+        plt.colorbar(im, ax=axes[plot_idx], label='Power (dB)')
+        plot_idx += 1
+        
+        # DEAD AIR FFT ANALYSIS
+        print("=== DEAD AIR SPECTRAL ANALYSIS ===")
+        
+        # Find dead air in extended window (±10 seconds)
+        extended_start = max(0, start_sample - int(10.0 * sample_rate))
+        extended_end = min(len(audio), end_sample + int(10.0 * sample_rate))
+        extended_audio = audio[extended_start:extended_end]
+        
+        # Dead air detection
+        dead_air_threshold = np.percentile(np.abs(extended_audio), 5)
+        min_dead_air_duration = int(0.5 * sample_rate)  # 0.5 seconds minimum
+        
+        print(f"Dead air threshold: {dead_air_threshold:.6f}")
+        print(f"Minimum duration: {min_dead_air_duration/sample_rate:.1f} seconds")
+        
+        # Find quiet segments
+        quiet_mask = np.abs(extended_audio) < dead_air_threshold
+        quiet_segments = []
+        in_quiet = False
+        quiet_start = 0
+        
+        for i, is_quiet in enumerate(quiet_mask):
+            if is_quiet and not in_quiet:
+                quiet_start = i
+                in_quiet = True
+            elif not is_quiet and in_quiet:
+                if (i - quiet_start) >= min_dead_air_duration:
+                    quiet_segments.append((quiet_start, i))
+                in_quiet = False
+        
+        if in_quiet and (len(quiet_mask) - quiet_start) >= min_dead_air_duration:
+            quiet_segments.append((quiet_start, len(quiet_mask)))
+        
+        print(f"Found {len(quiet_segments)} dead air segments")
+        
+        # FFT ANALYSIS OF DEAD AIR SEGMENTS
+        colors = ['red', 'orange', 'purple', 'brown']
+        
+        for i, (start_idx, end_idx) in enumerate(quiet_segments[:4]):
+            segment = extended_audio[start_idx:end_idx]
+            segment_duration = len(segment) / sample_rate
+            
+            print(f"\nSegment {i+1}: {segment_duration:.2f} seconds")
+            
+            if segment_duration >= 0.5:
+                # FFT CALCULATION - THIS IS THE FFT CODE
+                freqs = np.fft.rfftfreq(len(segment), 1/sample_rate)
+                fft_result = np.fft.rfft(segment)
+                power_spectrum = 20 * np.log10(np.abs(fft_result) + 1e-10)
+                
+                # Plot FFT result
+                color = colors[i % len(colors)]
+                axes[plot_idx].plot(freqs, power_spectrum, color=color, linewidth=1.5,
+                                  label=f'Dead air #{i+1} ({segment_duration:.1f}s)')
+                
+                # Calculate noise metrics
+                freq_60hz_mask = (freqs >= 58) & (freqs <= 62)
+                freq_120hz_mask = (freqs >= 118) & (freqs <= 122)
+                freq_low_mask = (freqs >= 50) & (freqs <= 200)
+                freq_high_mask = (freqs >= 2000) & (freqs <= 4000)
+                
+                noise_60hz = np.mean(power_spectrum[freq_60hz_mask]) if np.any(freq_60hz_mask) else -999
+                noise_120hz = np.mean(power_spectrum[freq_120hz_mask]) if np.any(freq_120hz_mask) else -999
+                noise_low = np.mean(power_spectrum[freq_low_mask]) if np.any(freq_low_mask) else -999
+                noise_high = np.mean(power_spectrum[freq_high_mask]) if np.any(freq_high_mask) else -999
+                
+                rms_level = np.sqrt(np.mean(segment**2))
+                
+                print(f"  RMS: {rms_level:.6f}")
+                print(f"  60Hz: {noise_60hz:.1f} dB")
+                print(f"  120Hz: {noise_120hz:.1f} dB") 
+                print(f"  Low freq: {noise_low:.1f} dB")
+                print(f"  High freq: {noise_high:.1f} dB")
+                
+                # Automation indicators
+                if i == 0:
+                    print(f"  AUTOMATION INDICATORS:")
+                    print(f"    Low RMS (<0.001): {'YES' if rms_level < 0.001 else 'NO'}")
+                    print(f"    Clean 60Hz (<-40dB): {'YES' if noise_60hz < -40 else 'NO'}")
+                    print(f"    Flat spectrum: {'YES' if abs(noise_high - noise_low) < 10 else 'NO'}")
+        
+        # Set up the dead air plot
+        axes[plot_idx].set_title('Dead Air FFT Spectral Analysis', fontweight='bold')
+        axes[plot_idx].set_xlabel('Frequency (Hz)')
+        axes[plot_idx].set_ylabel('Power (dB)')
+        axes[plot_idx].set_xlim(0, 2000)
+        axes[plot_idx].grid(True, alpha=0.3)
+        axes[plot_idx].legend()
+        plot_idx += 1
+    
+    # Filtered signal analysis
     if show_filtered or show_peaks:
-        # Apply bandpass filter for analysis
         nyquist = sample_rate / 2
         b, a = signal.butter(4, [1100/nyquist, min(1500/nyquist, 0.99)], btype='band')
         filtered = signal.filtfilt(b, a, audio_segment)
         
         if show_filtered:
-            # Plot 2: Filtered signal
-            axes[1].plot(time_axis, filtered, color='green', linewidth=0.8)
-            axes[1].set_title('Bandpass Filtered (1100-1500 Hz)', fontweight='bold')
-            axes[1].set_ylabel('Amplitude')
-            axes[1].grid(True, alpha=0.3)
-            axes[1].set_xlim(start_time, end_time)
+            axes[plot_idx].plot(time_axis, filtered, color='green', linewidth=0.8)
+            axes[plot_idx].set_title('Bandpass Filtered (1100-1500 Hz)', fontweight='bold')
+            axes[plot_idx].set_ylabel('Amplitude')
+            axes[plot_idx].grid(True, alpha=0.3)
+            axes[plot_idx].set_xlim(start_time, end_time)
+            plot_idx += 1
         
         if show_peaks:
-            # Peak detection
+            # Peak detection with updated parameters
             envelope = np.abs(signal.hilbert(filtered))
-            threshold = np.percentile(envelope, 90) * 1.5
-            min_peak_distance = int(0.1 * sample_rate)  # 100ms separation
+            threshold = np.percentile(envelope, 85) * 1.2
+            min_peak_distance = int(0.08 * sample_rate)
             
             peaks, _ = signal.find_peaks(envelope, height=threshold, distance=min_peak_distance)
             peak_times = peaks / sample_rate + start_time
             
-            # Filter by duration
+            # Duration filtering
             valid_peaks = []
             for i, peak in enumerate(peaks):
-                # Find pulse boundaries
                 pulse_start = peak
                 pulse_end = peak
                 
@@ -103,23 +206,20 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
                         break
                 
                 pulse_duration = (pulse_end - pulse_start) / sample_rate
-                if 0.01 <= pulse_duration <= 0.05:  # 10-50ms
+                if 0.005 <= pulse_duration <= 0.08:
                     valid_peaks.append(i)
             
             valid_peak_times = peak_times[valid_peaks]
             
-            # Plot envelope with peaks
-            plot_idx = 2 if show_filtered else 1
+            # Plot peaks
             axes[plot_idx].plot(time_axis, envelope, color='orange', linewidth=1, label='Envelope')
             axes[plot_idx].axhline(threshold, color='red', linestyle='--', linewidth=2, 
                                  label=f'Threshold ({threshold:.4f})')
             
-            # Mark all detected peaks
             if len(peaks) > 0:
                 axes[plot_idx].scatter(peak_times, envelope[peaks], color='red', s=50, 
                                      marker='x', label=f'All peaks ({len(peaks)})')
             
-            # Mark valid tick peaks
             if len(valid_peaks) > 0:
                 axes[plot_idx].scatter(valid_peak_times, envelope[peaks[valid_peaks]], 
                                      color='lime', s=100, marker='o', 
@@ -132,14 +232,12 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
             axes[plot_idx].grid(True, alpha=0.3)
             axes[plot_idx].set_xlim(start_time, end_time)
             
-            # Print results
-            print(f"File: {wav_file}")
-            print(f"Time window: {start_time}-{end_time}s")
-            print(f"All peaks found: {len(peaks)}")
+            print(f"\n=== TICK DETECTION RESULTS ===")
+            print(f"All peaks: {len(peaks)}")
             print(f"Valid ticks: {len(valid_peaks)}")
             if len(valid_peaks) > 1:
                 intervals = np.diff(valid_peak_times)
-                print(f"Tick intervals: {[round(x, 3) for x in intervals]}")
+                print(f"Intervals: {[round(x, 3) for x in intervals]}")
                 print(f"Mean interval: {np.mean(intervals):.3f}s")
     
     plt.tight_layout()
@@ -148,18 +246,9 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
 def plot_multiple_files(wav_files, start_time=19, end_time=26):
     """Plot multiple files for comparison"""
     for wav_file in wav_files:
-        print(f"\n{'='*50}")
+        print(f"\n{'='*60}")
         plot_waveform(wav_file, start_time, end_time)
 
-# Usage examples:
-# Basic plot with spectral analysis
-# plot_waveform('call.wav')
-
-# Skip spectral analysis for faster plotting  
-# plot_waveform('call.wav', show_spectral=False)
-
-# Custom time range with full analysis
-# plot_waveform('call.wav', 18, 25, show_spectral=True)
-
-# Compare noise between automated and manual calls
-# plot_multiple_files(['automated.wav', 'manual.wav'])
+# Usage:
+# plot_waveform('call.wav')  # Full analysis with dead air FFT
+# plot_waveform('call.wav', show_spectral=False)  # Skip spectral analysis
