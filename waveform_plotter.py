@@ -76,7 +76,7 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
         plt.colorbar(im, ax=axes[plot_idx], label='Power (dB)')
         plot_idx += 1
         
-        # DEAD AIR FFT ANALYSIS - USE UNFILTERED AUDIO
+        # DEAD AIR FFT ANALYSIS - USE UNFILTERED AUDIO WITH FALLBACK
         print("=== DEAD AIR SPECTRAL ANALYSIS ===")
         
         # Find dead air in extended window (±10 seconds) - UNFILTERED AUDIO
@@ -86,45 +86,79 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
         
         print(f"Extended window: {len(extended_audio_unfiltered)/sample_rate:.1f} seconds")
         print(f"Audio range: {np.min(extended_audio_unfiltered):.6f} to {np.max(extended_audio_unfiltered):.6f}")
+        print(f"Audio RMS: {np.sqrt(np.mean(extended_audio_unfiltered**2)):.6f}")
         
-        # Dead air detection on unfiltered audio
-        dead_air_threshold = np.percentile(np.abs(extended_audio_unfiltered), 10)  # Try 10th percentile
-        min_dead_air_duration = int(0.5 * sample_rate)  # 0.5 seconds minimum
-        
-        print(f"Dead air threshold: {dead_air_threshold:.6f}")
-        print(f"Minimum duration: {min_dead_air_duration/sample_rate:.1f} seconds")
-        
-        # Find quiet segments in unfiltered audio
-        quiet_mask = np.abs(extended_audio_unfiltered) < dead_air_threshold
-        print(f"Samples below threshold: {np.sum(quiet_mask)} / {len(quiet_mask)} ({100*np.sum(quiet_mask)/len(quiet_mask):.1f}%)")
-        
+        # Try multiple thresholds to find ANY quiet periods
+        percentiles_to_try = [5, 10, 15, 20, 25]
         quiet_segments = []
-        in_quiet = False
-        quiet_start = 0
         
-        for i, is_quiet in enumerate(quiet_mask):
-            if is_quiet and not in_quiet:
-                quiet_start = i
-                in_quiet = True
-            elif not is_quiet and in_quiet:
-                if (i - quiet_start) >= min_dead_air_duration:
-                    quiet_segments.append((quiet_start, i))
-                in_quiet = False
+        for pct in percentiles_to_try:
+            dead_air_threshold = np.percentile(np.abs(extended_audio_unfiltered), pct)
+            min_dead_air_duration = int(0.5 * sample_rate)  # 0.5 seconds minimum
+            
+            quiet_mask = np.abs(extended_audio_unfiltered) < dead_air_threshold
+            quiet_pct = 100 * np.sum(quiet_mask) / len(quiet_mask)
+            
+            print(f"Trying {pct}th percentile threshold: {dead_air_threshold:.6f} ({quiet_pct:.1f}% of audio)")
+            
+            # Find continuous quiet segments
+            temp_segments = []
+            in_quiet = False
+            quiet_start = 0
+            
+            for i, is_quiet in enumerate(quiet_mask):
+                if is_quiet and not in_quiet:
+                    quiet_start = i
+                    in_quiet = True
+                elif not is_quiet and in_quiet:
+                    if (i - quiet_start) >= min_dead_air_duration:
+                        temp_segments.append((quiet_start, i))
+                    in_quiet = False
+            
+            if in_quiet and (len(quiet_mask) - quiet_start) >= min_dead_air_duration:
+                temp_segments.append((quiet_start, len(quiet_mask)))
+            
+            print(f"  Found {len(temp_segments)} segments with {pct}th percentile")
+            
+            if len(temp_segments) > 0:
+                quiet_segments = temp_segments
+                final_threshold = dead_air_threshold
+                print(f"  SUCCESS: Using {pct}th percentile threshold")
+                break
         
-        if in_quiet and (len(quiet_mask) - quiet_start) >= min_dead_air_duration:
-            quiet_segments.append((quiet_start, len(quiet_mask)))
+        # If still no segments found, force analysis on quietest periods
+        if len(quiet_segments) == 0:
+            print("NO dead air found with any threshold - using QUIETEST SEGMENTS approach")
+            
+            # Find the 3 quietest 1-second segments
+            segment_length = int(1.0 * sample_rate)
+            segment_powers = []
+            
+            for i in range(0, len(extended_audio_unfiltered) - segment_length, segment_length // 4):
+                segment = extended_audio_unfiltered[i:i + segment_length]
+                power = np.mean(segment**2)
+                segment_powers.append((power, i, i + segment_length))
+            
+            # Sort by power and take quietest 3
+            segment_powers.sort(key=lambda x: x[0])
+            quiet_segments = [(start, end) for power, start, end in segment_powers[:3]]
+            final_threshold = np.sqrt(segment_powers[0][0])  # RMS of quietest
+            
+            print(f"Forced analysis on {len(quiet_segments)} quietest 1-second segments")
+            for i, (power, start, end) in enumerate(segment_powers[:3]):
+                print(f"  Segment {i+1}: RMS = {np.sqrt(power):.6f}")
         
-        print(f"Found {len(quiet_segments)} dead air segments")
-        
-        # FFT ANALYSIS OF DEAD AIR SEGMENTS - UNFILTERED
+        # FFT ANALYSIS OF SEGMENTS
         colors = ['red', 'orange', 'purple', 'brown']
+        analyzed_segments = 0
         
         for i, (start_idx, end_idx) in enumerate(quiet_segments[:4]):
-            segment = extended_audio_unfiltered[start_idx:end_idx]  # Use unfiltered segment
+            segment = extended_audio_unfiltered[start_idx:end_idx]
             segment_duration = len(segment) / sample_rate
             
-            print(f"\nSegment {i+1}: {segment_duration:.2f} seconds")
+            print(f"\nANALYZING Segment {i+1}: {segment_duration:.2f} seconds")
             
+            # Always analyze segments >= 0.5s OR any segment if we forced it
             if segment_duration >= 0.5:
                 # FFT CALCULATION - THIS IS THE FFT CODE ON UNFILTERED AUDIO
                 freqs = np.fft.rfftfreq(len(segment), 1/sample_rate)
@@ -132,9 +166,10 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
                 power_spectrum = 20 * np.log10(np.abs(fft_result) + 1e-10)
                 
                 # Plot FFT result
-                color = colors[i % len(colors)]
-                axes[plot_idx].plot(freqs, power_spectrum, color=color, linewidth=1.5,
-                                  label=f'Dead air #{i+1} ({segment_duration:.1f}s)')
+                color = colors[analyzed_segments % len(colors)]
+                axes[plot_idx].plot(freqs, power_spectrum, color=color, linewidth=2,
+                                  label=f'Segment #{analyzed_segments+1} ({segment_duration:.1f}s)')
+                analyzed_segments += 1
                 
                 # Calculate noise metrics
                 freq_60hz_mask = (freqs >= 58) & (freqs <= 62)
@@ -156,11 +191,13 @@ def plot_waveform(wav_file, start_time=19, end_time=26, show_filtered=True, show
                 print(f"  High freq: {noise_high:.1f} dB")
                 
                 # Automation indicators
-                if i == 0:
+                if analyzed_segments == 1:  # First analyzed segment
                     print(f"  AUTOMATION INDICATORS:")
-                    print(f"    Low RMS (<0.001): {'YES' if rms_level < 0.001 else 'NO'}")
-                    print(f"    Clean 60Hz (<-40dB): {'YES' if noise_60hz < -40 else 'NO'}")
-                    print(f"    Flat spectrum: {'YES' if abs(noise_high - noise_low) < 10 else 'NO'}")
+                    print(f"    Low RMS (<0.001): {'YES' if rms_level < 0.001 else 'NO'} [{rms_level:.6f}]")
+                    print(f"    Clean 60Hz (<-40dB): {'YES' if noise_60hz < -40 else 'NO'} [{noise_60hz:.1f}dB]")
+                    print(f"    Flat spectrum: {'YES' if abs(noise_high - noise_low) < 10 else 'NO'} [diff: {abs(noise_high - noise_low):.1f}dB]")
+        
+        print(f"\nTOTAL SEGMENTS ANALYZED: {analyzed_segments}")
         
         # Set up the dead air plot
         axes[plot_idx].set_title('Dead Air FFT Spectral Analysis', fontweight='bold')
