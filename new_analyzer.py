@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
-from scipy.stats import describe
+from scipy.stats import describe, gaussian_kde
 import audioop
 import struct
 import warnings
@@ -231,24 +231,38 @@ def analyze_tick_region(filepath, start_time, end_time, label="Unknown", show_pl
     if len(peaks) > 0:
         print(f"\n📏 TICK CHARACTERISTICS:")
         
-        # Amplitude analysis
-        peak_amplitudes = abs_audio[peaks]
+        # Amplitude analysis - now using actual peak values
+        peak_amplitudes = tick_region[peaks]
+        abs_peak_amplitudes = np.abs(peak_amplitudes)
+        
         print(f"  Amplitude:")
-        print(f"    Mean: {np.mean(peak_amplitudes):.4f}")
-        print(f"    Std Dev: {np.std(peak_amplitudes):.4f}")
-        print(f"    CV: {np.std(peak_amplitudes)/np.mean(peak_amplitudes):.4f}")
+        print(f"    Mean: {np.mean(abs_peak_amplitudes):.4f}")
+        print(f"    Std Dev: {np.std(abs_peak_amplitudes):.4f}")
+        amplitude_cv = np.std(abs_peak_amplitudes)/np.mean(abs_peak_amplitudes) if np.mean(abs_peak_amplitudes) > 0 else 1
+        print(f"    CV: {amplitude_cv:.4f}")
+        
+        # Amplitude consistency is KEY for filtering noise
+        if amplitude_cv < 0.15:
+            print(f"    ✓ Consistent amplitude (likely real ticks)")
+        else:
+            print(f"    ⚠ Variable amplitude (may include noise)")
         
         # Duration analysis (width of each tick)
         tick_widths = []
         for peak in peaks:
             # Find where amplitude drops to 50% of peak value
-            half_max = abs_audio[peak] * 0.5
+            peak_value = tick_region[peak]
+            half_max = peak_value * 0.5
+            
             left_idx = peak
             right_idx = peak
             
-            while left_idx > 0 and abs_audio[left_idx] > half_max:
+            # Find left edge
+            while left_idx > 0 and tick_region[left_idx] > half_max:
                 left_idx -= 1
-            while right_idx < len(abs_audio) - 1 and abs_audio[right_idx] > half_max:
+            
+            # Find right edge  
+            while right_idx < len(tick_region) - 1 and tick_region[right_idx] > half_max:
                 right_idx += 1
             
             width_ms = (right_idx - left_idx) * 1000 / sample_rate
@@ -258,6 +272,12 @@ def analyze_tick_region(filepath, start_time, end_time, label="Unknown", show_pl
             print(f"  Tick Width (ms):")
             print(f"    Mean: {np.mean(tick_widths):.2f}")
             print(f"    Std Dev: {np.std(tick_widths):.2f}")
+            
+            # Sharp, consistent ticks are a signature of the IVR system
+            if np.mean(tick_widths) < 10:
+                print(f"    ✓ Sharp ticks (typical of IVR system)")
+            else:
+                print(f"    ⚠ Wide pulses (may be noise or speech)")
     
     # Interval analysis
     if len(peaks) > 1:
