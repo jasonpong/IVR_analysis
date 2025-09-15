@@ -2,6 +2,7 @@ import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 from scipy.stats import describe, gaussian_kde
+from scipy.signal import find_peaks
 import audioop
 import struct
 import warnings
