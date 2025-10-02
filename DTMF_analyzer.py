@@ -186,16 +186,16 @@ class DTMFAnalyzerJupyter:
             
         return square_wave
     
-    def plot_comparison(self, figsize=(15, 10)):
-        """Create comprehensive visualization comparing original and detected tones"""
+    def plot_comparison(self, figsize=(15, 6)):
+        """Create visualization comparing original and detected tones"""
         if self.tones is None:
             self.detect_dtmf_tones()
             
         square_wave = self.generate_square_wave()
         time_axis = np.arange(len(self.audio_data)) / self.sample_rate
         
-        # Create figure with 4 subplots
-        fig, axes = plt.subplots(4, 1, figsize=figsize, sharex=True)
+        # Create figure with 2 subplots
+        fig, axes = plt.subplots(2, 1, figsize=figsize, sharex=True)
         
         # 1. Original waveform
         axes[0].plot(time_axis, self.audio_data, 'b-', linewidth=0.5, alpha=0.7)
@@ -215,6 +215,7 @@ class DTMFAnalyzerJupyter:
         axes[1].plot(time_axis, square_wave, 'r-', linewidth=1.5)
         axes[1].fill_between(time_axis, 0, square_wave, alpha=0.3, color='red')
         axes[1].set_ylabel('DTMF Active', fontsize=10)
+        axes[1].set_xlabel('Time (seconds)', fontsize=10)
         axes[1].set_title('Detected DTMF Tones (Square Wave Representation)', fontsize=12, fontweight='bold')
         axes[1].grid(True, alpha=0.3)
         axes[1].set_ylim([-0.1, 1.1])
@@ -234,47 +235,19 @@ class DTMFAnalyzerJupyter:
                         f"{tone['duration']*1000:.0f}ms", 
                         ha='center', va='top', fontsize=8, color='green')
         
-        # 3. Combined overlay
-        axes[2].plot(time_axis, self.audio_data, 'b-', linewidth=0.5, alpha=0.5, label='Original')
-        axes[2].plot(time_axis, square_wave, 'r-', linewidth=2, alpha=0.7, label='Detected DTMF')
-        axes[2].set_ylabel('Amplitude', fontsize=10)
-        axes[2].set_title('Overlay Comparison', fontsize=12, fontweight='bold')
-        axes[2].legend(loc='upper right')
-        axes[2].grid(True, alpha=0.3)
-        axes[2].set_ylim([-1.1, 1.1])
-        
-        # 4. Spectrogram
-        f, t, Sxx = spectrogram(self.audio_data, self.sample_rate, 
-                               nperseg=1024, noverlap=512)
-        freq_mask = (f >= 600) & (f <= 1700)
-        
-        im = axes[3].pcolormesh(t, f[freq_mask], 10 * np.log10(Sxx[freq_mask] + 1e-10), 
-                               shading='gouraud', cmap='viridis')
-        axes[3].set_ylabel('Frequency (Hz)', fontsize=10)
-        axes[3].set_xlabel('Time (seconds)', fontsize=10)
-        axes[3].set_title('Spectrogram (DTMF Frequency Range)', fontsize=12, fontweight='bold')
-        
-        # Mark DTMF frequencies
-        for freq in self.LOW_FREQS + self.HIGH_FREQS:
-            axes[3].axhline(y=freq, color='white', linestyle='--', alpha=0.3, linewidth=0.5)
-        
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=axes[3], pad=0.01)
-        cbar.set_label('Power (dB)', fontsize=9)
-        
         plt.tight_layout()
         plt.show()
         
         return fig
     
-    def plot_timing_analysis(self, figsize=(15, 6)):
+    def plot_timing_analysis(self, figsize=(12, 5)):
         """Plot timing analysis of tones and intervals"""
         if self.tones is None:
             self.detect_dtmf_tones()
         if self.intervals is None:
             self.calculate_intervals(self.tones)
         
-        fig, axes = plt.subplots(1, 3, figsize=figsize)
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
         
         # 1. Tone durations
         if self.tones:
@@ -307,24 +280,6 @@ class DTMFAnalyzerJupyter:
                            label=f'Mean: {np.mean(intervals):.1f}ms')
             axes[1].legend()
             axes[1].grid(True, alpha=0.3, axis='y')
-        
-        # 3. Timeline view
-        if self.tones:
-            axes[2].set_title('Timeline View', fontsize=12, fontweight='bold')
-            
-            # Create timeline bars
-            for i, tone in enumerate(self.tones):
-                axes[2].barh(0, tone['duration'], left=tone['start_time'], 
-                           height=0.5, color=f'C{i%10}', alpha=0.7, 
-                           edgecolor='black', linewidth=1)
-                axes[2].text(tone['start_time'] + tone['duration']/2, 0, 
-                           tone['digit'], ha='center', va='center', 
-                           fontsize=10, fontweight='bold')
-            
-            axes[2].set_ylim([-0.5, 0.5])
-            axes[2].set_xlabel('Time (seconds)', fontsize=10)
-            axes[2].set_yticks([])
-            axes[2].grid(True, alpha=0.3, axis='x')
         
         plt.tight_layout()
         plt.show()
