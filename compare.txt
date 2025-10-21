@@ -1,0 +1,325 @@
+# Device Fingerprinting Test Results
+
+## Mobile Web Testing
+
+Platform	Browser	Test Scenario	InAuth	Fingerprint	ThreatMetrix
+iPhone	Safari	Same ID in regular and private mode			
+iPhone	Safari	Same ID across private sessions			
+iPhone	Safari	Same ID after settings change			
+iPhone	Safari	Same ID after OS update			
+iPhone	Safari	Same ID after browser update			
+iPhone	Safari	Same ID with ad blocker enabled			
+iPhone	Safari	Same ID on different networks			
+iPhone	Safari	Same ID after clearing cache/cookies			
+iPhone	Safari	Same ID with VPN enabled			
+iPhone	Safari	New ID after factory reset			
+iPhone	Chrome	Same ID in regular and private mode			
+iPhone	Chrome	Same ID across private sessions			
+iPhone	Chrome	Same ID after settings change			
+iPhone	Chrome	Same ID after OS update			
+iPhone	Chrome	Same ID after browser update			
+iPhone	Chrome	Same ID with ad blocker enabled			
+iPhone	Chrome	Same ID on different networks			
+iPhone	Chrome	Same ID after clearing cache/cookies			
+iPhone	Chrome	Same ID with VPN enabled			
+iPhone	Chrome	New ID after factory reset			
+iPhone	Firefox	Same ID in regular and private mode			
+iPhone	Firefox	Same ID across private sessions			
+iPhone	Firefox	Same ID after settings change			
+iPhone	Firefox	Same ID with ad blocker enabled			
+iPhone	Firefox	Same ID with VPN enabled			
+iPhone	Firefox	New ID after factory reset			
+iPhone	Brave	Same ID in regular and private mode			
+iPhone	Brave	Same ID across private sessions			
+iPhone	Brave	Same ID after settings change			
+iPhone	Brave	Same ID with privacy shields enabled			
+iPhone	Brave	Same ID with VPN enabled			
+iPhone	Brave	New ID after factory reset			
+Android	Chrome	Same ID in regular and incognito mode			
+Android	Chrome	Same ID across incognito sessions			
+Android	Chrome	Same ID after settings change			
+Android	Chrome	Same ID after OS update			
+Android	Chrome	Same ID after browser update			
+Android	Chrome	Same ID with ad blocker enabled			
+Android	Chrome	Same ID on different networks			
+Android	Chrome	Same ID after clearing cache/cookies			
+Android	Chrome	Same ID with VPN enabled			
+Android	Chrome	New ID after factory reset			
+Android	Firefox	Same ID in regular and private mode			
+Android	Firefox	Same ID across private sessions			
+Android	Firefox	Same ID after settings change			
+Android	Firefox	Same ID with tracking protection			
+Android	Firefox	Same ID with VPN enabled			
+Android	Firefox	New ID after factory reset			
+Android	Brave	Same ID in regular and private mode			
+Android	Brave	Same ID across private sessions			
+Android	Brave	Same ID after settings change			
+Android	Brave	Same ID with privacy shields enabled			
+Android	Brave	Same ID with VPN enabled			
+Android	Brave	New ID after factory reset			
+
+## Desktop Testing
+
+Platform	Browser	Test Scenario	InAuth	Fingerprint	ThreatMetrix
+Windows 11	Chrome	Same ID in regular and incognito mode			
+Windows 11	Chrome	Same ID across incognito sessions			
+Windows 11	Chrome	Same ID after browser update			
+Windows 11	Chrome	Same ID after OS update			
+Windows 11	Chrome	Same ID after adding extensions			
+Windows 11	Chrome	Same ID with ad blocker enabled			
+Windows 11	Chrome	Same ID on different networks			
+Windows 11	Chrome	Same ID after clearing cache/cookies			
+Windows 11	Chrome	Same ID with VPN enabled			
+Windows 11	Chrome	New ID after OS reinstall			
+Windows 11	Firefox	Same ID in regular and private mode			
+Windows 11	Firefox	Same ID across private sessions			
+Windows 11	Firefox	Same ID after browser update			
+Windows 11	Firefox	Same ID with tracking protection			
+Windows 11	Firefox	Same ID with container tabs			
+Windows 11	Firefox	Same ID with ad blocker enabled			
+Windows 11	Firefox	Same ID with VPN enabled			
+Windows 11	Firefox	New ID after OS reinstall			
+Windows 11	Edge	Same ID in regular and InPrivate mode			
+Windows 11	Edge	Same ID across InPrivate sessions			
+Windows 11	Edge	Same ID after browser update			
+Windows 11	Edge	Same ID with tracking prevention			
+Windows 11	Edge	Same ID with ad blocker enabled			
+Windows 11	Edge	Same ID on different networks			
+Windows 11	Edge	Same ID with VPN enabled			
+Windows 11	Edge	New ID after OS reinstall			
+macOS	Safari	Same ID in regular and private mode			
+macOS	Safari	Same ID across private sessions			
+macOS	Safari	Same ID after browser update			
+macOS	Safari	Same ID after OS update			
+macOS	Safari	Same ID with ITP enabled			
+macOS	Safari	Same ID with ad blocker enabled			
+macOS	Safari	Same ID with VPN enabled			
+macOS	Safari	New ID after OS reinstall			
+macOS	Chrome	Same ID in regular and incognito mode			
+macOS	Chrome	Same ID after browser update			
+macOS	Chrome	Same ID after OS update			
+macOS	Chrome	Same ID with ad blocker enabled			
+macOS	Chrome	Same ID on different networks			
+macOS	Chrome	Same ID with VPN enabled			
+macOS	Chrome	New ID after OS reinstall			
+macOS	Firefox	Same ID in regular and private mode			
+macOS	Firefox	Same ID after browser update			
+macOS	Firefox	Same ID with tracking protection			
+macOS	Firefox	Same ID with ad blocker enabled			
+macOS	Firefox	Same ID with VPN enabled			
+macOS	Firefox	New ID after OS reinstall			
+Linux (Ubuntu)	Chrome	Same ID in regular and incognito mode			
+Linux (Ubuntu)	Chrome	Same ID after browser update			
+Linux (Ubuntu)	Chrome	Same ID after OS update			
+Linux (Ubuntu)	Chrome	Same ID with ad blocker enabled			
+Linux (Ubuntu)	Chrome	Same ID with VPN enabled			
+Linux (Ubuntu)	Chrome	New ID after OS reinstall			
+Linux (Ubuntu)	Firefox	Same ID in regular and private mode			
+Linux (Ubuntu)	Firefox	Same ID after browser update			
+Linux (Ubuntu)	Firefox	Same ID with tracking protection			
+Linux (Ubuntu)	Firefox	Same ID with ad blocker enabled			
+Linux (Ubuntu)	Firefox	Same ID with VPN enabled			
+Linux (Ubuntu)	Firefox	New ID after OS reinstall			
+
+## Geolocation Approach Comparison
+
+Aspect	ThreatMetrix HTML5 Geolocation	Fingerprint IP Geolocation
+Precision	GPS-level (meters)	City-level (5-50km radius)
+User Consent	Required - explicit permission prompt	Not required - passive
+Consent Rates	Low (industry-wide problem)	N/A - no prompt needed
+User Friction	High - permission dialog	None - transparent
+Accuracy Indicator	GPS precision	Radius in kilometers
+Privacy	Exact location	Generalized to public areas
+Use Case Fit	High precision needed	Balance of accuracy & UX
+
+Key Insight: ThreatMetrix can provide meter-level accuracy but requires user permission, which has low acceptance rates industry-wide. Fingerprint provides city-level accuracy (with km radius confidence) without any user consent requirement, creating zero friction while still enabling effective fraud detection and location verification.
+
+## Network & IP Intelligence Testing
+
+Category	Test Scenario	InAuth	Fingerprint	ThreatMetrix
+Network Detection	Detects VPN usage			
+Network Detection	Detects data center proxy			
+Network Detection	Detects residential proxy			
+Network Detection	Detects mobile proxy			
+Network Detection	Detects Tor browser			
+Network Detection	Identifies corporate network			
+Network Detection	Detects network switch (WiFi→Cellular)			
+Network Detection	Provides IP risk score			
+Network Detection	Detects bot/automation			
+Location & IP Intelligence	Accurate country location			
+Location & IP Intelligence	Accurate city location			
+Location & IP Intelligence	Provides accuracy radius (km)			
+Location & IP Intelligence	Detects location mismatch (VPN)			
+Location & IP Intelligence	Detects location spoofing			
+Location & IP Intelligence	Identifies ISP			
+Location & IP Intelligence	Identifies hosting provider			
+Location & IP Intelligence	Identifies mobile carrier			
+Additional IP Features	IP reputation scoring			
+Additional IP Features	Historical IP data			
+Additional IP Features	Connection type identification			
+Additional IP Features	IPv4/IPv6 support			
+
+## Performance Metrics
+
+Metric	InAuth	Fingerprint	ThreatMetrix
+Average Response Time (ms)			
+95th Percentile Response Time (ms)			
+99th Percentile Response Time (ms)			
+Error Rate (%)			
+Uptime/Availability (%)			
+Device Attributes Returned (#)			
+IP Attributes Returned (#)			
+Risk Score Provided (Y/N)			
+Confidence Score Provided (Y/N)			
+API Rate Limits			
+Documentation Quality (1-10)			
+Integration Ease (1-10)			
+Technical Support Quality (1-10)			
+
+## Data Elements Comparison
+
+Data Element	InAuth	Fingerprint	ThreatMetrix
+DEVICE IDENTIFIERS			
+Unique Device ID			
+Device ID Persistence			
+Confidence Score			
+DEVICE ATTRIBUTES			
+Operating System			
+OS Version			
+Browser Type			
+Browser Version			
+Device Type (mobile/desktop)			
+Device Model			
+Screen Resolution			
+Timezone			
+Language Settings			
+NETWORK ATTRIBUTES			
+IP Address			
+VPN Detection			
+Proxy Detection			
+Tor Detection			
+ISP Name			
+ASN			
+Connection Type			
+LOCATION DATA			
+Country			
+Region/State			
+City			
+Postal Code			
+Latitude/Longitude			
+Accuracy Radius (km)			
+RISK SIGNALS			
+Overall Risk Score			
+Device Risk Score			
+IP Risk Score			
+Behavioral Risk Indicators			
+Historical Data Available			
+
+## Cost Analysis
+
+Cost Component	InAuth	Fingerprint	ThreatMetrix
+Setup/Implementation Fee			
+Monthly Base Fee			
+Per Transaction Cost			
+Estimated Monthly Cost (10K transactions)			
+Estimated Monthly Cost (100K transactions)			
+Estimated Monthly Cost (1M transactions)			
+Contract Length Required			
+Volume Discounts Available			
+
+## Vendor Support & Implementation
+
+Aspect	InAuth	Fingerprint	ThreatMetrix
+Implementation Timeline (weeks)			
+Technical Documentation			
+Sample Code/SDKs Available			
+Sandbox Environment			
+Technical Support Hours			
+Support Response Time (SLA)			
+Dedicated Account Manager			
+Training Provided			
+Customization Options			
+
+## Security & Compliance
+
+Requirement	InAuth	Fingerprint	ThreatMetrix
+SOC 2 Compliance			
+ISO 27001 Certification			
+GDPR Compliant			
+CCPA Compliant			
+PCI DSS Compliant			
+Data Encryption (in transit)			
+Data Encryption (at rest)			
+Data Retention Policy			
+Data Center Locations			
+Right to be Forgotten Support			
+
+## Overall Scoring (Out of 100)
+
+Category	Weight	InAuth	Fingerprint	ThreatMetrix
+Device Fingerprinting Accuracy	30%	/30	/30	/30
+Privacy Resilience	20%	/20	/20	/20
+IP Intelligence Quality	20%	/20	/20	/20
+Technical Implementation	15%	/15	/15	/15
+Vendor Support & Documentation	15%	/15	/15	/15
+TOTAL SCORE	100%	/100	/100	/100
+
+## Notes & Observations
+
+### InAuth
+Strengths:
+-
+-
+
+Weaknesses:
+-
+-
+
+Key Findings:
+-
+
+### Fingerprint
+Strengths:
+-
+-
+
+Weaknesses:
+-
+-
+
+Key Findings:
+-
+
+### ThreatMetrix
+Strengths:
+-
+-
+
+Weaknesses:
+-
+-
+
+Key Findings:
+-
+
+## Final Recommendation
+
+Recommended Vendor: [TBD]
+
+Justification:
+
+
+Implementation Considerations:
+1.
+2.
+3.
+
+Risk Mitigation:
+1.
+2.
+3.
+
+Next Steps:
+1.
+2.
+3.
